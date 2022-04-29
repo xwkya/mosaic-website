@@ -1,0 +1,431 @@
+import cv2, os
+import numpy as np
+import time
+import torch
+import faiss
+import itertools
+import pickle
+from torchvision import transforms as T
+
+class AverageStrategy:
+    def __init__(self, divides, path, max):
+        self.path = path
+        self.divides = divides
+        self.average_map = {}
+        self.name = "average"
+        self.max = max
+        self.init_average(max)
+
+    def init_average(self, max):
+        dirs = os.listdir(self.path)
+        i=0
+        for name in dirs:
+            if i>=max:
+                break
+            img = cv2.imread(self.path + name)
+            self.average_map[name] = self.average(img)
+            i += 1
+        
+    def average(self, img):
+        average_t = np.zeros(shape=(self.divides, self.divides, 3))
+            
+        for i in range(self.divides):
+            for j in range(self.divides):
+                for k in range(3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//self.divides : ((i+1)*img.shape[0])//self.divides, (j*img.shape[1])//self.divides : ((j+1)*img.shape[1])//self.divides, k])
+        
+        return average_t
+
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1-avg2))
+
+    def find_best(self, tile):
+        average_tile = self.average(tile)
+        best = 9999999999999999
+        best_name = None
+        for name in self.average_map:
+            distance = self.find_distance(self.average_map[name], average_tile)
+            if distance < best:
+                best = distance
+                best_name = name
+        
+        return best_name
+    
+    def find_k_best(self, tile, k):
+        average_tile = self.average(tile)
+        h = []
+        largest = 999999999999
+        
+        for name in self.average_map:
+            distance = self.find_distance(self.average_map[name], average_tile)
+
+            if distance < largest:
+                if len(h)<k:
+                    h.append((name, distance))
+                else:
+                    h[-1] = (name, distance)
+                h.sort(key=lambda x: x[1])
+                largest = h[-1][1]
+        
+        return [x for x in h]
+
+class AverageStrategyCosine:
+    def __init__(self, path, name_to_index):
+        self.name_to_index = name_to_index
+
+        self.path = path
+        self.average_map = {}
+        self.quantization_table = self.generate_quantization()
+        self.name = "cosine"
+        self.max = len(name_to_index)
+        self.init_average(max)
+    
+    def average(self, img):
+        img = cv2.cvtColor(np.float32(img), cv2.COLOR_BGR2YCR_CB)
+        average_t = np.zeros(shape=(8, 8, 3))
+
+
+        # Average over 8 pixels
+        for i in range(8):
+            for j in range(8):
+                for k in range(3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k])
+        
+        # Run the Discrete Cosine Transform on the luminescence
+        imf = np.float32(average_t[:,:,0])/255.0  # float conversion/scale
+        dct = cv2.dct(imf)              # the dct
+        imgcv1 = dct*255.0    # convert back to int
+        imgcv1 = imgcv1/self.quantization_table
+        average_t[:, :, 0] = imgcv1
+
+        return average_t
+
+
+
+    def init_average(self, max):
+        for name in self.name_to_index:
+            img = cv2.imread(self.path + name)
+            self.average_map[name] = self.average(img)
+
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1[:,:,0]-avg2[:,:,0]))*np.mean(self.quantization_table)+0.2*(np.sum(np.square(avg1-avg2)))
+    
+    def find_best(self, tile):
+        average_tile = self.average(tile)
+        best = 9999999999999999
+        best_name = None
+        for name in self.average_map:
+            distance = self.find_distance(self.average_map[name], average_tile)
+            if distance < best:
+                best = distance
+                best_name = name
+        
+        return [best_name]
+
+    def find_best_n(self, tile_list, limit, search_k):
+        return [self.find_best(x) for x in tile_list]
+
+    def find_k_best(self, tile, k):
+        average_tile = self.average(tile)
+        h = []
+        largest = 999999999999
+        
+        for name in self.average_map:
+            distance = self.find_distance(self.average_map[name], average_tile)
+
+            if distance < largest:
+                if len(h)<k:
+                    h.append((name, distance))
+                else:
+                    h[-1] = (name, distance)
+                h.sort(key=lambda x: x[1])
+                largest = h[-1][1]
+        
+        return [x for x in h]
+    
+    def find_distribution(self, tile):
+        '''
+            Return probabilities, replacement_names.
+            probabilities: list of probabilities for each tile to be selected
+            replacement_names: list of the names of each replacement in the same order as probabilities
+        '''
+        average_tile = self.average(tile)
+        distance_arr = np.array([self.find_distance(self.average_map[name], average_tile) for name in self.average_map])
+        name_arr = [name for name in self.average_map]
+        distance_arr = distance_arr/np.mean(distance_arr)
+        distance_arr_exp = np.exp(-distance_arr)
+        
+        return distance_arr_exp/np.sum(distance_arr_exp), name_arr
+    
+    def generate_quantization(self):
+        return np.array([[16,11,10,16,24,40,51,61],
+                         [12,12,14,19,26,58,60,55],
+                         [14,13,16,24,40,57,69,56],
+                         [14,17,22,29,51,87,80,62],
+                         [18,22,37,56,68,109,103,77],
+                         [24,35,55,64,81,104,113,92],
+                         [49,64,78,87,103,121,120,101],
+                         [72,92,95,98,112,100,103,99]])
+
+class AverageStrategyCosineFaiss:
+    def __init__(self, name_to_index, use_gpu=False, limit=None, use_cells=True):
+        self.index_to_name = {v: k for k, v in name_to_index.items()}
+        self.path = 'dataset/'
+        self.average_map = {}
+        self.quantization_table = self.generate_quantization()
+        self.name = "faiss"
+        self.name_to_index = name_to_index
+        self.use_cells = use_cells
+
+        if limit is None:
+            self.max = len(name_to_index)
+        else:
+            self.max = limit
+        
+        self.index = self.init_average(use_gpu)
+        
+
+    def average(self, img):
+        img = cv2.cvtColor(np.float32(img), cv2.COLOR_BGR2YCR_CB)
+        average_t = np.zeros(shape=(8, 8, 3))
+
+
+        # Average over 8 pixels
+        for i in range(8):
+            for j in range(8):
+                for k in range(3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k]) * 0.45 # Less important.
+        
+        # Run the Discrete Cosine Transform on the luminescence
+        imf = np.float32(average_t[:,:,0])/255.0  # float conversion/scale
+        dct = cv2.dct(imf)              # the dct
+        imgcv1 = dct*255.0    # convert back to int
+        imgcv1 = imgcv1/self.quantization_table
+        average_t[:, :, 0] = imgcv1 * np.sqrt(np.mean(self.quantization_table)) # More important
+
+        return average_t
+
+    def init_average(self, use_gpu):
+        t = np.zeros((self.max, 8, 8, 3))
+        c = 0
+        for name in self.name_to_index:
+            if c == self.max:
+                break
+
+            img = cv2.imread(self.path + name)
+            img_avg = self.average(img)
+            self.average_map[name] = img_avg
+            t[self.name_to_index[name], :, :, :] = img_avg
+
+            c += 1
+        t = t.reshape(self.max,-1)
+        index = faiss.IndexFlatL2(8*8*3)
+        
+        if use_gpu:
+            res = faiss.StandardGpuResources()
+            index = faiss.index_cpu_to_gpu(res, 0, index)
+        if self.use_cells:
+            index = faiss.IndexIVFFlat(index, 8*8*3, 20)
+
+        index.train(t.astype('float32'))
+        index.add(t.astype('float32'))
+
+        return index
+
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1-avg2))
+    
+    def find_best(self, tile_list):
+        average_tile = [np.ndarray.flatten(self.average(tile)) for tile in tile_list]
+        average_tile = np.vstack(average_tile)
+        D,I = self.index.search(average_tile.astype('float32'), 1)
+
+        return [x[0] for x in I]
+    
+    def find_best_n(self, tile_list):
+        indexes = self.find_best(tile_list)
+        return [self.index_to_name[ind] for ind in indexes]
+
+        
+
+    def find_k_best(self, tile_list, k):
+        average_tile = [np.ndarray.flatten(self.average(tile)) for tile in tile_list]
+        average_tile = np.vstack(average_tile)
+        D,I = self.index.search(average_tile.astype('float32'), k)
+        return I
+    
+    def generate_quantization(self):
+        return np.array([[16,11,10,16,24,40,51,61],
+                         [12,12,14,19,26,58,60,55],
+                         [14,13,16,24,40,57,69,56],
+                         [14,17,22,29,51,87,80,62],
+                         [18,22,37,56,68,109,103,77],
+                         [24,35,55,64,81,104,113,92],
+                         [49,64,78,87,103,121,120,101],
+                         [72,92,95,98,112,100,103,99]])
+
+class AverageXLuminosity:
+    def __init__(self, divides, path, max):
+        self.path = path
+        self.divides = divides
+        self.average_map = {}
+        self.name = "luminMSE"
+        self.max = max
+        self.init_average(max)
+
+    def init_average(self, max):
+        dirs = os.listdir(self.path)
+        i=0
+        for name in dirs:
+            if i>=max:
+                break
+            img = cv2.imread(self.path + name)
+            self.average_map[name] = self.average(img)
+            i += 1
+        
+    def average(self, img):
+        average_t = np.zeros(shape=(self.divides, self.divides, 2))
+        
+        img_hsi = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        for i in range(self.divides):
+            for j in range(self.divides):
+                for k in range(2):
+                    average_t[i,j,k] = np.mean(img_hsi[(i*img_hsi.shape[0])//self.divides : ((i+1)*img_hsi.shape[0])//self.divides, (j*img_hsi.shape[1])//self.divides : ((j+1)*img_hsi.shape[1])//self.divides, k])
+        
+        return average_t
+
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1-avg2))
+
+    def find_best(self, tile):
+        average_tile = self.average(tile)
+        best = 9999999999999999
+        best_name = None
+        for name in self.average_map:
+            distance = self.find_distance(self.average_map[name], average_tile)
+            if distance < best:
+                best = distance
+                best_name = name
+        
+        return best_name
+    
+    def find_k_best(self, tile, k):
+        average_tile = self.average(tile)
+        h = []
+        largest = 999999999999
+        
+        for name in self.average_map:
+            distance = self.find_distance(self.average_map[name], average_tile)
+
+            if distance < largest:
+                if len(h)<k:
+                    h.append((name, distance))
+                else:
+                    h[-1] = (name, distance)
+                h.sort(key=lambda x: x[1])
+                largest = h[-1][1]
+        
+        return [x for x in h]
+
+class NNStrategy:
+    def __init__(self, NN, load, max=None, sample=False, sample_temp = 1.1):
+        self.NN = NN
+        self.name = "NN_"+NN.name
+        self.max = NN.out_features
+        self.index_to_name = self.reverse_dic(self.NN.name_to_index)
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.NN.to(self.device)
+        self.resizer = T.Resize((32,32))
+        self.quantization_table = self.generate_quantization()
+        self.name_to_index = NN.name_to_index
+        self.average_map = {}
+        self.path = "dataset/"
+
+        self.sample = sample
+        self.sample_temp = sample_temp
+
+        if max is None:
+            self.max = len(self.NN.name_to_index)
+        else:
+            self.max = max
+        self.init_average(load)
+
+
+    def init_average(self, load):
+        if not load:
+            for name in self.name_to_index:
+                img = cv2.imread(self.path + name)
+                self.average_map[name] = self.average(img)
+            with open("average_map.pkl", "wb") as f:
+                pickle.dump(self.average_map, f, -1)
+        else:
+            with open("average_map.pkl", "rb") as f:
+                self.average_map = pickle.load(f)
+
+
+    def average(self, img):
+        img = cv2.cvtColor(np.float32(img), cv2.COLOR_BGR2YCR_CB)
+        average_t = np.zeros(shape=(8, 8, 3))
+
+
+        # Average over 8 pixels
+        for i in range(8):
+            for j in range(8):
+                for k in range(3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k]) * 0.45 # Less important.
+        
+        # Run the Discrete Cosine Transform on the luminescence
+        imf = np.float32(average_t[:,:,0])/255.0  # float conversion/scale
+        dct = cv2.dct(imf)              # the dct
+        imgcv1 = dct*255.0    # convert back to int
+        imgcv1 = imgcv1/self.quantization_table
+        average_t[:, :, 0] = imgcv1 * np.sqrt(np.mean(self.quantization_table)) # More important
+
+        return average_t
+
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1[:,:,0]-avg2[:,:,0])) + np.sum(np.square(avg1-avg2)) * 0.5
+
+    def reverse_dic(self, dic):
+        # Reverse the keys and values of a dictionary
+        d = {}
+        for key in dic:
+            d[dic[key]] = key
+        
+        return d
+    
+    def find_best_n(self, tile_set):
+        input = torch.Tensor(np.array(tile_set)).transpose(1,3)
+        input = self.resizer(input).to(self.device)/255
+        input = input.transpose(1,3)
+
+        with torch.no_grad():
+            pred = self.NN(input)
+        
+        pred = pred[:,:self.max]
+
+        if self.sample:
+            pred = torch.pow(pred, self.sample_temp)
+
+            pred = pred/torch.sum(pred, dim=-1).unsqueeze(-1)
+            cat = torch.distributions.categorical.Categorical(probs=pred)
+            replacements_index = cat.sample((1,)).transpose(0,1).squeeze()
+        else:
+            replacements_index = torch.topk(pred, k=1, dim=1).indices.squeeze()
+        
+        replacements_names = [self.index_to_name[i.item()] for i in replacements_index]
+        
+        return replacements_names
+    
+    def find_best(self, tile):
+        return self.find_best_n([tile])[0]
+
+    def generate_quantization(self):
+        return np.array([[16,11,10,16,24,40,51,61],
+                         [12,12,14,19,26,58,60,55],
+                         [14,13,16,24,40,57,69,56],
+                         [14,17,22,29,51,87,80,62],
+                         [18,22,37,56,68,109,103,77],
+                         [24,35,55,64,81,104,113,92],
+                         [49,64,78,87,103,121,120,101],
+                         [72,92,95,98,112,100,103,99]])
