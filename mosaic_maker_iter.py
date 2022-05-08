@@ -1,4 +1,3 @@
-from re import L
 from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
 from nn_models import NNpolicy_torchresize
 from strategies import AverageStrategy, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
@@ -14,18 +13,18 @@ import skimage.measure
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 
-image_name = "image2.jpeg"
-limit = 1
-num_tiles = 48
+image_name = "nus-logo.jpeg"
+limit = None
+num_tiles = 32
 search_rotations = True
 search_symmetry = True
 upsize_depth_search = 2
 quality = True
-strategy_name = 'Faiss'
+strategy_name = 'NN'
 sample_network = False
-sample_temperature = 1.3
+sample_temperature = 5
 upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-improve_ratio = 1
+improve_ratio = 0.4
 
 parameters = {
     "limit": limit,
@@ -48,7 +47,7 @@ def save_mosaic(strategy, parameters, save_name, mosaic, folder = "mosaics"):
         cv2.imwrite(folder + "/" + str(parameters["n_tiles"] ) +"_" +str(parameters["limit"]) + "_" + save_name, mosaic)
 
 def init_name_dic(max):
-    dirs = os.listdir("dataset/")
+    dirs = os.listdir("dataset_r/")
     dic = {}
     
     i=0
@@ -110,7 +109,7 @@ def best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, cor
                 if not place_tile:
                     continue
 
-                replacement = cv2.imread("dataset/"+name)
+                replacement = cv2.imread("dataset_r/"+name)
                 
                 # infos contains the rotation applied to the src tile -> inverse rotation must be applied to the replacement
                 if "symmetry" in infos:
@@ -327,4 +326,4 @@ if __name__ == '__main__':
     
     x = make_mosaic(image, strategy, corrector, parameters)
         
-    save_mosaic(strategy, parameters, "paul.jpeg", x["mosaic"], "mosaics/NN_cosine")
+    save_mosaic(strategy, parameters, "nuslogo.jpeg", x["mosaic"], "mosaics/NN_cosine")

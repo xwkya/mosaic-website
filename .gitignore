@@ -1,0 +1,8 @@
+dataset_all/
+dataset_r/
+mosaics/
+dataset.pkl
+memory.pkl
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store

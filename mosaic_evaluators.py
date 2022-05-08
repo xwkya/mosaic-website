@@ -75,14 +75,14 @@ class MosaicEvaluator:
 
         return self.features['feats'].squeeze()
 
-    def evaluate(self, mosaic, img, n_tiles):
+    def evaluate(self, mosaic, img):
         mosaic = mosaic.astype(np.uint8)
         img = img.astype(np.uint8)
         eval_network = self.network_eval(mosaic, img)
-        eval_ssim = self.ssim_eval(mosaic, img)
+        eval_ssim = self.ssim_eval(cv2.resize(mosaic, (256,256)), cv2.resize(img, (256,256)))
 
-        imp = math.exp(-n_tiles/12)
-        mixed_eval = (1-imp)*eval_network + imp*eval_ssim
+        #imp = math.exp(-n_tiles/12)
+        mixed_eval = 0.7*eval_network + 0.3*eval_ssim
         return (mixed_eval, eval_network, eval_ssim)
 
 if __name__ == '__main__':
@@ -113,6 +113,6 @@ if __name__ == '__main__':
     plt.clf()
     ax = plt.plot(network_h, label='network')
     plt.plot(ssim_h, label='ssim')
-    #plt.plot(mixed_h, label='mixed')
+    plt.plot(mixed_h, label='mixed')
     plt.legend()
     plt.show()

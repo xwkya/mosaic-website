@@ -170,7 +170,7 @@ class AverageStrategyCosine:
 class AverageStrategyCosineFaiss:
     def __init__(self, name_to_index, use_gpu=False, limit=None, use_cells=True):
         self.index_to_name = {v: k for k, v in name_to_index.items()}
-        self.path = 'dataset/'
+        self.path = 'dataset_r/'
         self.average_map = {}
         self.quantization_table = self.generate_quantization()
         self.name = "faiss"
@@ -339,7 +339,7 @@ class NNStrategy:
         self.quantization_table = self.generate_quantization()
         self.name_to_index = NN.name_to_index
         self.average_map = {}
-        self.path = "dataset/"
+        self.path = "dataset_r/"
 
         self.sample = sample
         self.sample_temp = sample_temp

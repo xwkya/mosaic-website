@@ -138,6 +138,7 @@ def start_training(NN_class, NN_args, num_generators, generate_n):
     procs = create_generator_processes(num_generators, q, read_q, n_tiles)
     trainer = mp.Process(target=train, args=(q, NN_class, NN_args, num_training_cycles, n_tiles, False, hist), name="Trainer")
     dataset_reader.start()
+    
     for proc in procs:
         proc.start()
     trainer.start()

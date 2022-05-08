@@ -1,16 +1,31 @@
-import cv2
+import random
+from image_generator import get_image
 
-image = cv2.imread('image2.jpeg')
+def get_random_image(size):
+    filesize = 99000                 #size of the really big file
+    offset = random.randrange(filesize)
 
-saliency = cv2.saliency.StaticSaliencyFineGrained_create()
-(success, saliencyMap) = saliency.computeSaliency(image)
-# if we would like a *binary* map that we could process for contours,
-# compute convex hull's, extract bounding boxes, etc., we can
-# additionally threshold the saliency map
-threshMap = cv2.threshold(saliencyMap.astype("uint8"), 0, 255,
-	cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-# show the images
-cv2.imshow("Image", image)
-cv2.imshow("Output", saliencyMap)
-cv2.imshow("Thresh", threshMap)
-cv2.waitKey(0)
+    f = open('train_images.tsv')
+    image = False
+    while image is False:
+        f.seek(offset)                  #go to random position
+        f.readline()                    # discard - bound to be partial line
+        random_line = f.readline()      # bingo!
+
+        # extra to handle last/first line edge cases
+        if len(random_line) == 0:       # we have hit the end
+            f.seek(0)
+            random_line = f.readline()
+        
+
+        image = get_image(random_line.split('\t')[0])
+        if image is False:
+            continue
+
+        h, w, c = image.shape
+        if h<size or w<size:
+            image = False
+            continue
+    
+    y, x = random.randint(0, h-size-1), random.randint(0, w-size-1)
+    return image[y:y+size, x:x+size, :]

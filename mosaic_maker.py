@@ -1,4 +1,3 @@
-from re import L
 from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
 from nn_models import NNpolicy_torchresize
 from strategies import AverageStrategy, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
@@ -14,13 +13,13 @@ import skimage.measure
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 
-image_name = "image2.jpeg"
-limit = 1
-num_tiles = 48
+image_name = "terence.png"
+limit = None
+num_tiles = 16
 search_rotations = True
 search_symmetry = True
 upsize_depth_search = 2
-quality = True
+quality = False
 strategy_name = 'Faiss'
 sample_network = False
 sample_temperature = 1.3
@@ -60,6 +59,7 @@ def init_name_dic(max):
     return dic
 
 def best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, corrector, strategy):
+    times = 0
     upsize_discount = parameters['upsize_discount']
     inverse_rotation = get_inverse_rotation_dic()
 
@@ -97,8 +97,10 @@ def best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, cor
 
                 if not place_tile:
                     continue
-
-                replacement = cv2.imread("dataset/"+name)
+                
+                t = time.time()
+                replacement = cv2.imread("dataset_r/"+name)
+                times+=time.time()-t
                 
                 # infos contains the rotation applied to the src tile -> inverse rotation must be applied to the replacement
                 if parameters["search_symmetry"]:
@@ -130,6 +132,7 @@ def best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, cor
                     replacement = cv2.resize(replacement, (tile_size*upsize_depth, tile_size*upsize_depth))
                     mosaic[i*tile_size : (i+upsize_depth)*tile_size, j*tile_size : (j+upsize_depth)*tile_size, :] = replacement
 
+    print("Total time to fetch memory:", times)
     return mosaic, score_dict
 
 def get_inverse_rotation_dic():
@@ -250,7 +253,6 @@ if __name__ == '__main__':
 
     with open("name_to_index.pkl", "rb") as f:
         name_to_index = pickle.load(f)
-
     
     print("Initializing strategy object..")
 
@@ -269,4 +271,4 @@ if __name__ == '__main__':
     
     x = make_mosaic(image, strategy, corrector, parameters)
         
-    save_mosaic(strategy, parameters, "paul.jpeg", x["mosaic"], "mosaics/NN_cosine")
+    save_mosaic(strategy, parameters, "nus-logo.jpeg", x["mosaic"], "mosaics/NN_cosine")
