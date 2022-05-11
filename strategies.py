@@ -235,10 +235,13 @@ class AverageStrategyCosineFaiss:
     def find_distance(self, avg1, avg2):
         return np.sum(np.square(avg1-avg2))
     
-    def find_best(self, tile_list):
+    def find_best(self, tile_list, get_dist=False):
         average_tile = [np.ndarray.flatten(self.average(tile)) for tile in tile_list]
         average_tile = np.vstack(average_tile)
         D,I = self.index.search(average_tile.astype('float32'), 1)
+        
+        if get_dist:
+            return I.reshape((-1,)), D.reshape((-1,))
 
         return [x[0] for x in I]
     

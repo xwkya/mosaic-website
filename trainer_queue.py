@@ -12,8 +12,29 @@ import multiprocessing as mp
 import os
 import ctypes
 import torchvision
+from torch.utils.data import DataLoader, Dataset
 
 DOWNLOAD_BUFFER_SIZE = 40
+
+class CustomDatasetBatch(Dataset):
+    def __init__(self, names):
+        self.names = names
+        self.resizer = torchvision.transforms.Resize((8, 8))
+
+    def __len__(self):
+        return len(self.names)
+    
+    def __getitem__(self, index):
+        try:
+            with open('train_data/'+self.names[index], 'rb') as f:
+                tile, label =  pickle.load(f)
+        except EOFError:
+            return None, None
+
+        tile = torch.LongTensor(tile).transpose(0,2)
+        tile = self.resizer(tile)/255
+        tile = tile.transpose(0, 2)
+        return tile, label
 
 def pprint(*args):
     print(mp.current_process().name, "|", *args)
@@ -151,11 +172,15 @@ def start_training(NN_class, NN_args, num_generators, generate_n):
     return hist
 
 if __name__ == '__main__':
+
+    NN_class = NNConstructed
+
+
     with open("name_to_index.pkl", 'rb') as f:
         name_to_index = pickle.load(f)
 
-    NN_class = NNConstructed
-    NN_args = (10000, name_to_index, "cosine", True, True)
+    
+    NN_args = (10000, name_to_index, "cosine2", True, True)
     print(str(NN_args[3:]))
     num_generators = 4
     

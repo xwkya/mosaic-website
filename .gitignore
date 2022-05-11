@@ -6,3 +6,6 @@ memory.pkl
 __pycache__/
 .ipynb_checkpoints/
 .DS_Store
+train_data/
+train_data_augmented/
+lightning_logs/
