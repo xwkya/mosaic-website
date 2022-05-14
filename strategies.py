@@ -51,6 +51,9 @@ class AverageStrategy:
         
         return best_name
     
+    def find_best_n(self, tile_list):
+        return [self.find_best(tile) for tile in tile_list]
+
     def find_k_best(self, tile, k):
         average_tile = self.average(tile)
         h = []
@@ -167,15 +170,15 @@ class AverageStrategyCosine:
                          [49,64,78,87,103,121,120,101],
                          [72,92,95,98,112,100,103,99]])
 
-class AverageStrategyCosineFaiss:
-    def __init__(self, name_to_index, use_gpu=False, limit=None, use_cells=True):
+class AverageStrategyFaiss:
+    def __init__(self, name_to_index, divide=4, use_gpu=False, limit=None, use_cells=True):
         self.index_to_name = {v: k for k, v in name_to_index.items()}
         self.path = 'dataset_r/'
         self.average_map = {}
-        self.quantization_table = self.generate_quantization()
-        self.name = "faiss"
+        self.name = "faissAverage"
         self.name_to_index = name_to_index
         self.use_cells = use_cells
+        self.divide = divide
 
         if limit is None:
             self.max = len(name_to_index)
@@ -187,21 +190,99 @@ class AverageStrategyCosineFaiss:
 
     def average(self, img):
         img = cv2.cvtColor(np.float32(img), cv2.COLOR_BGR2YCR_CB)
+        average_t = np.zeros(shape=(self.divide, self.divide, 3))
+
+
+        # Average over 8 pixels
+        for i in range(self.divide):
+            for j in range(self.divide):
+                for k in range(3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//self.divide : ((i+1)*img.shape[0])//self.divide, (j*img.shape[1])//self.divide : ((j+1)*img.shape[1])//self.divide, k])
+        
+        return average_t
+
+    def init_average(self, use_gpu):
+        t = np.zeros((self.max, self.divide, self.divide, 3))
+        c = 0
+        for name in self.name_to_index:
+            if c == self.max:
+                break
+
+            img = cv2.imread(self.path + name)
+            img_avg = self.average(img)
+            self.average_map[name] = img_avg
+            t[self.name_to_index[name], :, :, :] = img_avg
+
+            c += 1
+        t = t.reshape(self.max,-1)
+        index = faiss.IndexFlatL2(self.divide*self.divide*3)
+        
+        if use_gpu:
+            res = faiss.StandardGpuResources()
+            index = faiss.index_cpu_to_gpu(res, 0, index)
+        if self.use_cells:
+            index = faiss.IndexIVFFlat(index, self.divide*self.divide*3, 20)
+
+        index.train(t.astype('float32'))
+        index.add(t.astype('float32'))
+
+        return index
+
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1-avg2))
+    
+    def find_best(self, tile_list, get_dist=False):
+        average_tile = [np.ndarray.flatten(self.average(tile)) for tile in tile_list]
+        average_tile = np.vstack(average_tile)
+        D,I = self.index.search(average_tile.astype('float32'), 1)
+        
+        if get_dist:
+            return I.reshape((-1,)), D.reshape((-1,))
+
+        return [x[0] for x in I]
+    
+    def find_best_n(self, tile_list):
+        indexes = self.find_best(tile_list)
+        return [self.index_to_name[ind] for ind in indexes]
+
+class AverageStrategyCosineFaiss:
+    def __init__(self, name_to_index, use_gpu=False, limit=None, use_cells=True, scaling=0.45):
+        self.index_to_name = {v: k for k, v in name_to_index.items()}
+        self.path = 'dataset_r/'
+        self.average_map = {}
+        self.quantization_table = self.generate_quantization()
+        self.name = "faiss"
+        self.name_to_index = name_to_index
+        self.use_cells = use_cells
+        self.scaling = scaling
+
+        if limit is None:
+            self.max = len(name_to_index)
+        else:
+            self.max = limit
+        
+        self.index = self.init_average(use_gpu)
+        
+    def average(self, img):
+        img = np.float32(cv2.cvtColor(np.uint8(img), cv2.COLOR_BGR2YCR_CB))
         average_t = np.zeros(shape=(8, 8, 3))
 
+        #print(img[:,:,2])
 
         # Average over 8 pixels
         for i in range(8):
             for j in range(8):
-                for k in range(3):
-                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k]) * 0.45 # Less important.
-        
+                for k in range(1,3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k]) * self.scaling # Less important.
+                average_t[i,j,0] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, 0])
         # Run the Discrete Cosine Transform on the luminescence
         imf = np.float32(average_t[:,:,0])/255.0  # float conversion/scale
         dct = cv2.dct(imf)              # the dct
         imgcv1 = dct*255.0    # convert back to int
         imgcv1 = imgcv1/self.quantization_table
-        average_t[:, :, 0] = imgcv1 * np.sqrt(np.mean(self.quantization_table)) # More important
+        average_t[:, :, 0] = imgcv1 * np.mean(self.quantization_table) # More important
+
+        #print(np.mean(average_t[:, :, 0]), np.mean(average_t[:, :, 1:]))
 
         return average_t
 

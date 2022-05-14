@@ -8,78 +8,42 @@ import ctypes
 import torchvision
 from torch.autograd import Variable
 import kornia
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset
 from pytorch_lightning import LightningModule, Trainer
 import torch.nn.functional as F
 from pytorch_lightning.plugins import DDPPlugin
 from torch.optim.lr_scheduler import MultiStepLR, ExponentialLR
 from argparse import ArgumentParser
 
-def create_datasets(eps, resize_size):
-    names = os.listdir('train_data/')
-    train_names = names[:int(len(names)*eps)]
-    test_names = names[int(len(names)*eps):]
-    return CustomDataset(train_names, resize_size), CustomDataset(test_names, resize_size)
 
-
-class CustomDataset(Dataset):
-    def __init__(self, names, resize_size):
-        self.names = names
+class CustomDataset(IterableDataset):
+    def __init__(self, resize_size):
         self.resizer = torchvision.transforms.Resize((resize_size, resize_size))
-
-    def __len__(self):
-        return len(self.names)
+        self.conn = open('dataset_augmented.pkl', 'rb')
     
-    def __getitem__(self, index):
-        try:
-            with open('train_data/'+self.names[index], 'rb') as f:
-                tile, label =  pickle.load(f)
-        except EOFError:
-            return None, None
-
-        tile = torch.LongTensor(tile).transpose(0,2)
-        tile = self.resizer(tile)/255
-        tile = tile.transpose(0, 2)
-        return tile, label
+    
+    def __iter__(self):
+        while True:
+            try:
+                tile, labels, distances = pickle.load(self.conn)
+            except:
+                self.conn.close()
+                self.conn = open('dataset_augmented.pkl', 'rb')
+                break
+            tile = torch.LongTensor(tile).transpose(0,2)
+            tile = self.resizer(tile)/255
+            tile = tile.transpose(0, 2)
+            distances = torch.Tensor(distances)
+            # (distances-torch.mean(distances, dim=-1))/torch.pow(torch.pow(distances-torch.mean(distances,dim=-1), 2).mean(dim=-1), 1/2)
+            yield tile, torch.LongTensor(labels), distances/10000
             
 
 def collate_batch_fn(batch):
-    image_batch, labels_batch = torch.stack([x[0] for x in batch if x[0] is not None]), torch.LongTensor([x[1] for x in batch if x[0] is not None])
+    image_batch = torch.stack([x[0] for x in batch if x[0] is not None])
+    labels_batch = torch.stack([x[1] for x in batch if x[0] is not None])
+    distances_batch = torch.stack([x[2] for x in batch if x[0] is not None])
 
-    group_batch = torch.randint(0, 8, (labels_batch.shape[0],))
-    rotations = torch.remainder(group_batch, 4)*90.
-    flip = torch.div(group_batch, 4, rounding_mode='trunc').view(-1,1,1,1)
-
-    image_batch_flipped = kornia.geometry.transform.hflip(image_batch)
-    image_batch = image_batch_flipped * flip + image_batch * (1-flip)
-    image_batch = kornia.geometry.transform.rotate(image_batch, rotations)
-
-    return image_batch, labels_batch, group_batch
-
-def url_to_images(img_gen, url, n_tiles):
-    '''
-        returns list of tiles resized to (85, 85)
-    '''
-    image = img_gen.get_image(url)
-    if type(image)==type(False):
-        return False
-    w, l = image.shape[0], image.shape[1]
-
-    tile_size = min(w//n_tiles, l//n_tiles)
-    n_tiles_w = w//tile_size
-    n_tiles_l = l//tile_size
-
-    tiles_list = []
-
-    for i in range(n_tiles_w):
-        for j in range(n_tiles_l):
-            tile_img = image[i*tile_size : (i+1)*tile_size, j*tile_size : (j+1)*tile_size, :]
-            #tiles_list.append(cv2.resize(tile_img, (85,85))) # Passing this size to the neural network
-            tiles_list.append(tile_img)
-            
-    return tiles_list
-
-
+    return image_batch, labels_batch, distances_batch
 
 class LitModel(LightningModule):
     @staticmethod
@@ -103,7 +67,7 @@ class LitModel(LightningModule):
             name_to_index = pickle.load(f)
 
         if NN_name == 'GCNN':
-            NN_class = NNGCNN
+            NN_class = NNGCNN2
             NN_args = (10000, 8, name_to_index, "cosine_GCNN", predict_group)
             resize_size = 8
         elif NN_name == 'CNN':
@@ -115,7 +79,7 @@ class LitModel(LightningModule):
         
         self.NN = NN_class(*NN_args)
         self.batch_size = batch_size
-        self.train_dataset, self.test_dataset = create_datasets(0.8, resize_size=resize_size)
+        self.train_dataset = CustomDataset(8)
         self.use_scheduler = scheduler
         self.decay = decay
         self.lr = lr
@@ -127,37 +91,28 @@ class LitModel(LightningModule):
         return self.NN(x)
 
     def training_step(self, batch, batch_nb):
-        x, y_feat, y_group = batch
-        pred = self(x)
+        x, labels, distances = batch
+        # (bsz, ..) (bsz, 8), (bsz, 8)
         if self.predict_group:
-            loss = F.cross_entropy(pred, y_feat*y_group)
-            self.log("performance", {"loss": loss.item()}, prog_bar=True)
+            pred_label, pred_dist = self(x) 
+            # pred_label: (bsz, 8, 10000)  pred_dist: (bsz, 8, 1)
+            label_loss = F.cross_entropy(pred_label.view(pred_label.shape[0]*8,-1), labels.view(-1,))
+            distance_loss = F.mse_loss(pred_dist.squeeze(), distances)
+            loss = label_loss + distance_loss
+            self.log("performance", {"loss": loss, "label_loss": label_loss, "distance_loss": 10*distance_loss}, prog_bar=True)
             return loss
         
         else:
-            loss = F.cross_entropy(pred, y_feat)
+            pred = self(x)
+            loss = F.cross_entropy(pred, labels)
             self.log('loss', loss, prog_bar=True)
             return loss
     
-    def validation_step(self, batch, batch_idx):
-        # this is the validation loop
-        x, y_feat, y_group = batch
-        pred = self(x)
-        if self.predict_group:
-            loss = F.cross_entropy(pred, y_feat*y_group)
-            self.log("val_loss", loss, prog_bar=True)
-            return loss
-        
-        else:
-            loss = F.cross_entropy(pred, y_feat)
-            self.log('val_loss', loss, prog_bar=True)
-            return loss
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=self.lr)
         scheduler = {
-            'scheduler': ExponentialLR(opt, self.decay),
-            'interval': 'step'  # called after each training step
+            'scheduler': ExponentialLR(opt, self.decay)
         }
         if self.use_scheduler:
             return [opt], [scheduler]
@@ -165,16 +120,8 @@ class LitModel(LightningModule):
             return opt
     
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, collate_fn=collate_batch_fn, num_workers=self.num_workers, shuffle=True, persistent_workers=self.persistent_workers)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, collate_fn=collate_batch_fn, num_workers=0)
     
-    def val_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.batch_size, collate_fn=collate_batch_fn, num_workers=self.num_workers, pin_memory=True, persistent_workers=self.persistent_workers)
-
-
-def generate_train_dataloader():
-    train_dataset, test_dataset = create_datasets(0.8)
-    return DataLoader(train_dataset, batch_size=128, collate_fn=collate_batch_fn, num_workers=32 if torch.cuda.is_available() else 0, pin_memory=True if torch.cuda.is_available() else False, shuffle=True)
-
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser = Trainer.add_argparse_args(parser)

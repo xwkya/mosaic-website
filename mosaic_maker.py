@@ -1,6 +1,6 @@
 from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
 from nn_models import NNpolicy_torchresize
-from strategies import AverageStrategy, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
+from strategies import AverageStrategyFaiss, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
 from collections import defaultdict
 from helper_func import print_parameters
 import numpy as np
@@ -245,6 +245,7 @@ def symmetry_generator(tile_list):
                 new_tile_list.append((tile, new_infos))
     
     return new_tile_list
+
 
 if __name__ == '__main__':
     image = cv2.imread(image_name)

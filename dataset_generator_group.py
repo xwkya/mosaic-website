@@ -9,6 +9,7 @@ import csv
 import requests # to get image from the web
 import shutil # to save it locally
 import time
+import numpy as np
 
 def pprint(*args):
     print(mp.current_process().name, "|", *args)
@@ -17,41 +18,35 @@ def generate_label(tile_list, strategy, n_div = 10):
     '''
         return the index of k_best. Because the strategy uses name_to_index, they are correctly indexed.
     '''
-
+    start = time.time()
     k_best, distances = strategy.find_best(tile_list, get_dist=True) #[(name, average_tile)]
-
+    print(len(tile_list), round(time.time()-start,2))
     return k_best, distances
-
-def init_name_dic(max):
-    dirs = os.listdir("dataset/")
-    dic = {}
-    
-    i=0
-    for name in dirs:
-        if i>=max:
-            break
-        dic[name]=i
-        i += 1
-    
-    return dic
 
 class ParrMemory:
     def __init__(self, genq=None, resq=None):
         '''
             n_tiles: number of tiles to be generated horizontally and vertically
-            name: 
         '''
         self.genq = genq
         self.resq = resq
     
     def add_new(self, strategy):
-        tile = False
-        while tile is False:
-            tile = self.genq.get()
-            tile_list = self.group_transform(tile)
+        url, tile_list = self.genq.get()
+        tile_list_len = len(tile_list)
+        tiles_shape = tile_list[0].shape
 
-        labels, distances = generate_label(tile_list, strategy)
-        self.resq.put((tile, labels, distances) )
+        tile_list = np.array(list(map(self.group_transform, tile_list))) # tile_list = [[tile1+rotations], ..., [tilen+rotations]]
+        tile_list = tile_list.reshape(8*tile_list_len, *tiles_shape) # [tiles]
+
+        labels, distances = generate_label(tile_list, strategy) # [labels], [distances]
+        labels = labels.reshape(-1, 8)
+        distances = distances.reshape(-1, 8)
+        tile_list = tile_list.reshape(tile_list_len, 8, *tiles_shape)
+       
+        for i in range(distances.shape[0]):
+            self.resq.put((url, tile_list[i, 0], labels[i, :], distances[i, :]) )
+            
     
     @staticmethod
     def group_transform(tile):
@@ -71,28 +66,43 @@ class ParrMemory:
         
         return new_list
         
+def gen_tiles(genq, n_tiles):
+    '''
+        Puts tiles in a genq list
+    '''
+    def get_url(reader):
+        return next(reader)[0]
+
+    reader = csv.reader(open("train_images.tsv"), delimiter="\t")
+    next(reader)
+
+    while True:
+        url = get_url(reader)
+        try:
+            img = get_image(url)
+        except Exception as e:
+            print(f"Error in get url: {e}")
+            continue
+        
+        if img is False:
+            continue
+        
+        try:
+            tile_list = img_to_tiles(img, n_tiles)
+        except Exception as E:
+            print("Error in dividing image:",E)
+
+        genq.put((url, tile_list))
 
 def write_queue(resq, file_name):
     i=0
     while True:
         with open(f"{file_name}{i}.pkl", "wb") as f:
-            image, labels, distances = resq.get()
+            url, image, labels, distances = resq.get()
             pickle.dump((image, labels, distances), f, -1)
             i+=1
         if (i+1)%500==0:
             print(i)
-
-def gen_tiles(genq):
-    '''
-        Puts tiles in a genq list
-    '''
-    path = "train_data/"
-    l = os.listdir(path)
-    for name in l:
-        with open(os.path.join(path, name), 'rb') as f:
-            tile = pickle.load(f)[0]
-        
-        genq.put(tile)
 
 def generate_n(resq, genq, n, strategy, name_to_index, use_gpu):
     pprint("Generating strategy object..")
@@ -100,11 +110,8 @@ def generate_n(resq, genq, n, strategy, name_to_index, use_gpu):
     pprint("Done generating strategy object.")
     memory = ParrMemory(genq, resq)
     for i in range(n):
-        t = time.time()
         memory.add_new(strategy_obj)
-        pprint(time.time()-t)
-        if i%5==4:
-            pprint(f"{i+1}/{n}")
+
         
 
 if __name__ == "__main__":
@@ -120,7 +127,7 @@ if __name__ == "__main__":
     resq = m.Queue(100)
     genq = m.Queue(16)
 
-    gen_process = mp.Process(target=gen_tiles, args=(genq,), name="Generator")
+    gen_process = mp.Process(target=gen_tiles, args=(genq, 32), name="Generator")
     write_process = mp.Process(target=write_queue, args=(resq, "train_data_augmented/data_"), name="Writer")
 
     procs = []

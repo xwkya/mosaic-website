@@ -1,6 +1,6 @@
 from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
 from nn_models import NNpolicy_torchresize
-from strategies import AverageStrategy, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
+from strategies import AverageStrategyFaiss, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
 from collections import defaultdict
 from helper_func import print_parameters
 import numpy as np
@@ -12,19 +12,20 @@ import math
 import skimage.measure
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
+from mosaic_evaluators import MosaicEvaluator
 
-image_name = "nus-logo.jpeg"
+image_name = "evaluations/images/gays.jpeg"
 limit = None
-num_tiles = 32
+num_tiles = 64
 search_rotations = True
 search_symmetry = True
-upsize_depth_search = 2
+upsize_depth_search = 1
 quality = True
 strategy_name = 'NN'
 sample_network = False
 sample_temperature = 5
 upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-improve_ratio = 0.4
+improve_ratio = 0.2
 
 parameters = {
     "limit": limit,
@@ -244,7 +245,7 @@ def make_mosaic(image, strategy, corrector, parameters):
     mosaic, score_dict = best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, corrector, strategy)
     print("best to mosaic:",time.time()-s)
 
-    if improve_ratio > 0.001:
+    if improve_ratio > 0.001 and (parameters['search_rotations'] or parameters['search_symmetry']):
         print("improving..")
         mosaic, score_dict = improve_mosaic(n_tiles_w, n_tiles_l, tile_size, score_dict, mosaic, strategy, corrector, image, parameters)
     
@@ -302,7 +303,7 @@ def symmetry_generator(tile_list):
 
 if __name__ == '__main__':
     image = cv2.imread(image_name)
-
+    ev = MosaicEvaluator()
     print_parameters(parameters)
 
     with open("name_to_index.pkl", "rb") as f:
@@ -316,14 +317,20 @@ if __name__ == '__main__':
         NN.load()
         strategy = NNStrategy(NN, True, max=parameters['limit'], sample=parameters['sample'], sample_temp=parameters['sample_temp'])
     
-    elif parameters['strategy'] == 'Faiss':
-        strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False)
+    elif parameters['strategy'] == 'FaissCosine':
+        strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=0.3)
+    
+    elif parameters['strategy'] == 'average':
+        strategy = AverageStrategyFaiss(name_to_index, divide=16)
     
     print("Done generating strategy object.")
+    corrector = AffineCorrector(max_affine=8, max_linear=50)
 
-    corrector = AffineCorrector(max_affine=8, max_linear=30)
-
-    
-    x = make_mosaic(image, strategy, corrector, parameters)
+    for scaling in [0.8]:
+        print('Scaling:', scaling)
+        strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=scaling)
+        x = make_mosaic(image, strategy, corrector, parameters)
+        print('Evaluation:', ev.evaluate(x['mosaic'], image)[0].item())
+        print('\n')
         
-    save_mosaic(strategy, parameters, "nuslogo.jpeg", x["mosaic"], "mosaics/NN_cosine")
+        save_mosaic(strategy, parameters, f"gays_{scaling}.jpeg", x["mosaic"], "mosaics/NN_cosine")

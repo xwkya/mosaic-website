@@ -9,3 +9,7 @@ __pycache__/
 train_data/
 train_data_augmented/
 lightning_logs/
+*.jpeg
+*.jpg
+*.png
+lightning_logs/

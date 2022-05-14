@@ -78,6 +78,12 @@ class MosaicEvaluator:
     def evaluate(self, mosaic, img):
         mosaic = mosaic.astype(np.uint8)
         img = img.astype(np.uint8)
+
+        img = resize(img, 256.5)[:-10,:-10]
+        img = cv2.medianBlur(img, 5)
+
+        mosaic = resize(mosaic, 256.5)[:-10,:-10]
+        mosaic = cv2.medianBlur(mosaic, 5)
         eval_network = self.network_eval(mosaic, img)
         eval_ssim = self.ssim_eval(cv2.resize(mosaic, (256,256)), cv2.resize(img, (256,256)))
 
