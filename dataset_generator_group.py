@@ -1,6 +1,7 @@
 import multiprocessing as mp
 from os import name
 import pickle
+import shelve
 import cv2
 from strategies import AverageStrategyCosineFaiss
 from image_generator import get_image, img_to_tiles
@@ -96,17 +97,18 @@ def gen_tiles(genq, n_tiles):
 
 def write_queue(resq, file_name):
     i=0
-    while True:
-        with open(f"{file_name}{i}.pkl", "wb") as f:
-            url, image, labels, distances = resq.get()
-            pickle.dump((image, labels, distances), f, -1)
+    with open(file_name, 'wb') as f:
+        while True:
+            url, tile, labels, distances = resq.get()
+            print(labels, distances)
+            pickle.dump((tile, labels, distances), f, -1)
             i+=1
-        if (i+1)%500==0:
-            print(i)
+            if (i+1)%500==0:
+                print(i)
 
 def generate_n(resq, genq, n, strategy, name_to_index, use_gpu):
     pprint("Generating strategy object..")
-    strategy_obj = strategy(name_to_index, limit=None, use_cells=True)
+    strategy_obj = strategy(name_to_index, limit=None, use_cells=True, scaling=0.8)
     pprint("Done generating strategy object.")
     memory = ParrMemory(genq, resq)
     for i in range(n):
@@ -128,7 +130,7 @@ if __name__ == "__main__":
     genq = m.Queue(16)
 
     gen_process = mp.Process(target=gen_tiles, args=(genq, 32), name="Generator")
-    write_process = mp.Process(target=write_queue, args=(resq, "train_data_augmented/data_"), name="Writer")
+    write_process = mp.Process(target=write_queue, args=(resq, "train_data_augmented/dataset.pkl"), name="Writer")
 
     procs = []
     for i in range(num_proc):

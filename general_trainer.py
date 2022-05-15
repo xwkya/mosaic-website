@@ -59,7 +59,7 @@ class LitModel(LightningModule):
         parser.add_argument("--predict_group", dest='predict_group', default=False, action='store_true')
         return parent_parser
 
-    def __init__(self, NN_name, batch_size=1024, num_workers=16, scheduler=True, lr=3e-4, decay=1.0005, predict_group=True, persistent_workers=True, **kwargs):
+    def __init__(self, NN_name, load=True, batch_size=1024, num_workers=16, scheduler=True, lr=3e-4, decay=1/1.0005, predict_group=True, persistent_workers=True, **kwargs):
         super().__init__()
 
         print('PREDICT GROUP', predict_group)
@@ -77,14 +77,14 @@ class LitModel(LightningModule):
         else:
             raise Exception('Unknown NN class name.')
         
+
         self.NN = NN_class(*NN_args)
         self.batch_size = batch_size
-        self.train_dataset = CustomDataset(8)
-        self.use_scheduler = scheduler
-        self.decay = decay
-        self.lr = lr
-        self.num_workers = num_workers
-        self.persistent_workers = persistent_workers
+        if load:
+            self.train_dataset = CustomDataset(8)
+            self.use_scheduler = scheduler
+            self.decay = decay
+            self.lr = lr
         self.predict_group = predict_group
 
     def forward(self, x):

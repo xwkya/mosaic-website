@@ -6,6 +6,8 @@ import faiss
 import itertools
 import pickle
 from torchvision import transforms as T
+from general_trainer import LitModel
+
 
 class AverageStrategy:
     def __init__(self, divides, path, max):
@@ -513,3 +515,81 @@ class NNStrategy:
                          [24,35,55,64,81,104,113,92],
                          [49,64,78,87,103,121,120,101],
                          [72,92,95,98,112,100,103,99]])
+
+class GNN_strategy:
+    def __init__(self, name_to_index):
+        model = LitModel(NN_name='GCNN', load=False)
+        self.model = model.load_from_checkpoint('lightning_logs/version_3/checkpoints/epoch=20-step=14091.ckpt', NN_name='GCNN', load=False)
+
+        x = cv2.resize(cv2.imread('subimage_2.jpeg'),(8,8))
+        self.name_to_index = name_to_index
+        self.index_to_name = self.reverse_dic(name_to_index)
+        self.average_map = {}
+        self.path = "dataset_r/"
+        self.init_average(True)
+        self.resizer = T.Resize((8,8))
+        self.max = 10000
+        self.quantization_table = np.array([[16,11,10,16,24,40,51,61],
+                         [12,12,14,19,26,58,60,55],
+                         [14,13,16,24,40,57,69,56],
+                         [14,17,22,29,51,87,80,62],
+                         [18,22,37,56,68,109,103,77],
+                         [24,35,55,64,81,104,113,92],
+                         [49,64,78,87,103,121,120,101],
+                         [72,92,95,98,112,100,103,99]])
+        
+    
+    def init_average(self, load):
+        if not load:
+            for name in self.name_to_index:
+                img = cv2.imread(self.path + name)
+                self.average_map[name] = self.average(img)
+            with open("average_map.pkl", "wb") as f:
+                pickle.dump(self.average_map, f, -1)
+        else:
+            with open("average_map.pkl", "rb") as f:
+                self.average_map = pickle.load(f)
+    
+    def reverse_dic(self, dic):
+        # Reverse the keys and values of a dictionary
+        d = {}
+        for key in dic:
+            d[dic[key]] = key
+        
+        return d
+
+    def average(self, img):
+        img = cv2.cvtColor(np.float32(img), cv2.COLOR_BGR2YCR_CB)
+        average_t = np.zeros(shape=(8, 8, 3))
+
+
+        # Average over 8 pixels
+        for i in range(8):
+            for j in range(8):
+                for k in range(3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k]) * 0.45 # Less important.
+        
+        # Run the Discrete Cosine Transform on the luminescence
+        imf = np.float32(average_t[:,:,0])/255.0  # float conversion/scale
+        dct = cv2.dct(imf)              # the dct
+        imgcv1 = dct*255.0    # convert back to int
+        imgcv1 = imgcv1/self.quantization_table
+        average_t[:, :, 0] = imgcv1 * np.sqrt(np.mean(self.quantization_table)) # More important
+
+        return average_t
+
+    def find_best_n_trans(self, tile_list):
+        with torch.no_grad():
+            x = torch.Tensor(np.array(tile_list)).transpose(1,3)
+            x = self.resizer(x).transpose(1,3)/255
+            y, d = self.model.predict(x)
+        
+        y = torch.argmax(y,dim=-1)
+        best_transform = torch.argmin(d.squeeze(), dim=-1)
+        #print(best_transform)
+        y = y[range(y.size(0)), best_transform.tolist()]
+        names = [self.index_to_name[s.item()] for s in y]
+        return names, best_transform.tolist()
+    
+    def find_distance(self, avg1, avg2):
+        return np.sum(np.square(avg1[:,:,0]-avg2[:,:,0])) + np.sum(np.square(avg1-avg2)) * 0.5

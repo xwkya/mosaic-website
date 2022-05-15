@@ -148,10 +148,10 @@ class NNGCNN2(NNModel):
         # Using Conv1d layers to use the group option
 
         if predict_group:
-            self.fc1 = torch.nn.Linear(4*4*256, 2048)
-            self.fc2 = torch.nn.Linear(2048, 4096)
-            self.fc_out = torch.nn.Linear(4096, out_features)
-            self.fc_dist = torch.nn.Linear(4096, 1)
+            self.fc1 = torch.nn.Linear(4*4*256, 1024)
+            self.fc2 = torch.nn.Linear(1024, 2048)
+            self.fc_out = torch.nn.Linear(2048, out_features)
+            self.fc_dist = torch.nn.Linear(2048, 1)
 
         else:
             self.fc1 = torch.nn.Linear(4*4*256, 1024)
@@ -185,7 +185,7 @@ class NNGCNN2(NNModel):
             x = x.view(bsz*8, 256, 4, 4) # (bsz*8, 256, 4, 4)
             flip_indexes = [r+4 for r in range(bsz)]+[r+5 for r in range(bsz)]+[r+6 for r in range(bsz)]+[r+7 for r in range(bsz)]
             x[flip_indexes,:,:,:] = kornia.geometry.transform.vflip(x[flip_indexes,:,:,:])
-            x = kornia.geometry.transform.rotate(x, torch.Tensor([0,270,180,90,0,270,180,90]).repeat(bsz))
+            x = kornia.geometry.transform.rotate(x, torch.Tensor([0,270,180,90,0,270,180,90]).type_as(x).repeat(bsz))
             x = x.view(bsz, 8 , -1)
             x = F.relu(self.fc1(x))
             x = F.relu(self.fc2(x))

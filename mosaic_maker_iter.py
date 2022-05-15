@@ -1,6 +1,6 @@
 from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
 from nn_models import NNpolicy_torchresize
-from strategies import AverageStrategyFaiss, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
+from strategies import AverageStrategyFaiss, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy, GNN_strategy
 from collections import defaultdict
 from helper_func import print_parameters
 import numpy as np
@@ -14,18 +14,18 @@ from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 from mosaic_evaluators import MosaicEvaluator
 
-image_name = "evaluations/images/gays.jpeg"
+image_name = "evaluations/images/image2.jpeg"
 limit = None
 num_tiles = 64
 search_rotations = True
 search_symmetry = True
 upsize_depth_search = 1
 quality = True
-strategy_name = 'NN'
+strategy_name = 'GNN'
 sample_network = False
 sample_temperature = 5
 upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-improve_ratio = 0.2
+improve_ratio = 0.0
 
 parameters = {
     "limit": limit,
@@ -113,13 +113,25 @@ def best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, cor
                 replacement = cv2.imread("dataset_r/"+name)
                 
                 # infos contains the rotation applied to the src tile -> inverse rotation must be applied to the replacement
-                if "symmetry" in infos:
-                    if infos["symmetry"] == -1:
-                        replacement = cv2.flip(replacement, 0)
+                if parameters['strategy'] != 'GNN':
+                    # Base order of operations
 
-                if "rotation" in infos:
+                    if "symmetry" in infos:
+                        if infos["symmetry"] == -1:
+                            replacement = cv2.flip(replacement, 0)
+
+                    if "rotation" in infos:
+                        if infos["rotation"] is not None:
+                            replacement = cv2.rotate(replacement, inverse_rotation[infos["rotation"]])
+
+                elif parameters['strategy'] == 'GNN':
+                    # GNN uses opposite order
+
                     if infos["rotation"] is not None:
                         replacement = cv2.rotate(replacement, inverse_rotation[infos["rotation"]])
+
+                    if infos["symmetry"] == -1:
+                        replacement = cv2.flip(replacement, 0)
                 
                 # Update the scores
 
@@ -183,10 +195,10 @@ def generate_tile_infos(image, n_tiles_w, n_tiles_l, tile_size, parameters, mask
         if mask is not None:
             x = [a for a in x if (a[1]['coords'][0],a[1]['coords'][1]) in mask]
 
-        if parameters["search_rotations"]:
+        if parameters["search_rotations"] and parameters['strategy'] != 'GNN':
             x = rotation_generator(x)
         
-        if parameters["search_symmetry"]:
+        if parameters["search_symmetry"] and parameters['strategy'] != 'GNN':
             x = symmetry_generator(x)
         
         tile_infos_list += x
@@ -233,8 +245,17 @@ def make_mosaic(image, strategy, corrector, parameters):
     tile_list = [x[0] for x in tile_infos_list]
     infos_list = [x[1] for x in tile_infos_list]
     
+
     s = time.time()
-    name_replacement_list = strategy.find_best_n(tile_list)
+    if parameters['strategy']=='GNN':
+        # The GNN gives the best rotation/symmetry, we just need to forward that information directly in the infos_list
+        name_replacement_list, transforms = strategy.find_best_n_trans(tile_list)
+        for x, g in zip(infos_list, transforms):
+            x['rotation'] = [None, cv2.ROTATE_90_CLOCKWISE,cv2.ROTATE_180,cv2.ROTATE_90_COUNTERCLOCKWISE][g%4]
+            x['symmetry'] = 1 if g<4 else -1
+
+    else:
+        name_replacement_list = strategy.find_best_n(tile_list)
     print("find best n:",time.time()-s)
 
     s = time.time()
@@ -309,6 +330,7 @@ if __name__ == '__main__':
     with open("name_to_index.pkl", "rb") as f:
         name_to_index = pickle.load(f)
 
+    corrector = AffineCorrector(max_affine=8, max_linear=50)
     
     print("Initializing strategy object..")
 
@@ -323,9 +345,14 @@ if __name__ == '__main__':
     elif parameters['strategy'] == 'average':
         strategy = AverageStrategyFaiss(name_to_index, divide=16)
     
-    print("Done generating strategy object.")
-    corrector = AffineCorrector(max_affine=8, max_linear=50)
+    elif parameters['strategy'] == 'GNN':
+        strategy = GNN_strategy(name_to_index)
 
+    x = make_mosaic(image, strategy, corrector, parameters)
+    save_mosaic(strategy, parameters, f"GNN.jpeg", x["mosaic"], "mosaics/NN_cosine")
+    assert False
+    print("Done generating strategy object.")
+    
     for scaling in [0.8]:
         print('Scaling:', scaling)
         strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=scaling)
