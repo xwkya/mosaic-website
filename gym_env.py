@@ -1,6 +1,6 @@
 import gym
 from gym import spaces
-from image_generator import get_image
+from mosaic_project.image_generator import get_image
 import csv
 import random
 import numpy as np
@@ -15,15 +15,15 @@ def reverse_dic(self, dic):
     return d
 
 def get_random_image(size):
-    filesize = 99000                 #size of the really big file
+    filesize = 99000
     offset = random.randrange(filesize)
 
-    f = open('train_images.tsv')
+    f = open('data/train_images.tsv')
     image = False
     while image is False:
-        f.seek(offset)                  #go to random position
-        f.readline()                    # discard - bound to be partial line
-        random_line = f.readline()      # bingo!
+        f.seek(offset)
+        f.readline()
+        random_line = f.readline()
 
         # extra to handle last/first line edge cases
         if len(random_line) == 0:       # we have hit the end
@@ -59,15 +59,19 @@ class CustomEnv(gym.Env):
     self.index_to_name = reverse_dic(name_to_index)
 
     self.size = size
-    self.action_space = spaces.MultiDiscrete(nvec=[36, 8, size//2, size//2, 10000])
+    self.action_space = spaces.MultiDiscrete(nvec=[36, 8, size//2, size//2, len(name_to_index)])
+    
     # Example for using image as input:
+    # Observation space = (256, 256, 3)^2
     self.observation_space = spaces.Box(low=0, high=255, shape=
                     (size, size, 6), dtype=np.uint8)
+    
 
   def step(self, action):
     # Execute one time step within the environment
-    # action = (rot, zoom, x, y, )
-    pass
+    # action = (x, y)
+    img = self.target
+
 
   def reset(self):
     # Reset the state of the environment to an initial state

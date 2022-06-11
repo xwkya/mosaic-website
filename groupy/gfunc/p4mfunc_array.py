@@ -1,6 +1,6 @@
 
-import groupy.garray.p4m_array as p4ma
-from groupy.gfunc.gfuncarray import GFuncArray
+import mosaic_project.groupy.garray.p4m_array as p4ma
+from mosaic_project.groupy.gfunc.gfuncarray import GFuncArray
 
 
 class P4MFuncArray(GFuncArray):

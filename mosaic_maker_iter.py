@@ -1,8 +1,9 @@
-from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
-from nn_models import NNpolicy_torchresize
-from strategies import AverageStrategyFaiss, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy, GNN_strategy
+from mosaic_project.NN_training.general_trainer import LitModel
+from mosaic_project.correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
+from mosaic_project.nn_models import NNpolicy_torchresize
+from mosaic_project.strategies import AverageStrategyFaiss, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy, GNN_strategy
 from collections import defaultdict
-from helper_func import print_parameters
+from mosaic_project.helper_func import print_parameters
 import numpy as np
 import cv2
 import time
@@ -12,34 +13,37 @@ import math
 import skimage.measure
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
-from mosaic_evaluators import MosaicEvaluator
+from mosaic_project.mosaic_evaluators import MosaicEvaluator
 
-image_name = "evaluations/images/image2.jpeg"
-limit = None
-num_tiles = 64
-search_rotations = True
-search_symmetry = True
-upsize_depth_search = 1
-quality = True
-strategy_name = 'GNN'
-sample_network = False
-sample_temperature = 5
-upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-improve_ratio = 0.0
+if __name__ == '__main__':
+    image_name = "terence.png"
+    limit = None
+    num_tiles = 32
+    search_rotations = True
+    search_symmetry = True
+    upsize_depth_search = 1
+    quality = True
+    strategy_name = 'Average'
+    sample_network = False
+    sample_temperature = 5
+    upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
+    improve_ratio = 0.
+    path = ''
 
-parameters = {
-    "limit": limit,
-    "n_tiles": num_tiles,
-    "search_rotations": search_rotations,
-    "search_symmetry": search_symmetry,
-    "upsize_depth_search": upsize_depth_search,
-    "quality": quality,
-    'strategy': strategy_name,
-    'sample': sample_network,
-    'sample_temp': sample_temperature,
-    'upsize_discount': upsize_discount,
-    'improve_ratio': improve_ratio
-}
+    parameters = {
+        "limit": limit,
+        "n_tiles": num_tiles,
+        "search_rotations": search_rotations,
+        "search_symmetry": search_symmetry,
+        "upsize_depth_search": upsize_depth_search,
+        "quality": quality,
+        'strategy': strategy_name,
+        'sample': sample_network,
+        'sample_temp': sample_temperature,
+        'upsize_discount': upsize_discount,
+        'improve_ratio': improve_ratio,
+        'path': path
+    }
 
 def save_mosaic(strategy, parameters, save_name, mosaic, folder = "mosaics"):
     if parameters["limit"] is None:
@@ -48,7 +52,7 @@ def save_mosaic(strategy, parameters, save_name, mosaic, folder = "mosaics"):
         cv2.imwrite(folder + "/" + str(parameters["n_tiles"] ) +"_" +str(parameters["limit"]) + "_" + save_name, mosaic)
 
 def init_name_dic(max):
-    dirs = os.listdir("dataset_r/")
+    dirs = os.listdir("data/dataset_r/")
     dic = {}
     
     i=0
@@ -110,7 +114,7 @@ def best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, cor
                 if not place_tile:
                     continue
 
-                replacement = cv2.imread("dataset_r/"+name)
+                replacement = cv2.imread(parameters['path']+"data/dataset_r/"+name)
                 
                 # infos contains the rotation applied to the src tile -> inverse rotation must be applied to the replacement
                 if parameters['strategy'] != 'GNN':
@@ -266,7 +270,7 @@ def make_mosaic(image, strategy, corrector, parameters):
     mosaic, score_dict = best_to_mosaic(n_tiles_w, n_tiles_l, tile_size, image, best, parameters, corrector, strategy)
     print("best to mosaic:",time.time()-s)
 
-    if improve_ratio > 0.001 and (parameters['search_rotations'] or parameters['search_symmetry']):
+    if parameters['improve_ratio'] > 0 and (parameters['search_rotations'] or parameters['search_symmetry']):
         print("improving..")
         mosaic, score_dict = improve_mosaic(n_tiles_w, n_tiles_l, tile_size, score_dict, mosaic, strategy, corrector, image, parameters)
     
@@ -335,29 +339,30 @@ if __name__ == '__main__':
     print("Initializing strategy object..")
 
     if parameters['strategy'] == 'NN':
-        NN = NNpolicy_torchresize(10000, name_to_index, "cosine")
-        NN.load()
+        NN = LitModel.load_from_checkpoint('models/version_13/checkpoints/epoch=79-step=158720.ckpt', NN_name='CNN', load=False)
         strategy = NNStrategy(NN, True, max=parameters['limit'], sample=parameters['sample'], sample_temp=parameters['sample_temp'])
     
     elif parameters['strategy'] == 'FaissCosine':
-        strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=0.3)
+        strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=0.7)
     
-    elif parameters['strategy'] == 'average':
-        strategy = AverageStrategyFaiss(name_to_index, divide=16)
+    elif parameters['strategy'] == 'Average':
+        strategy = AverageStrategyFaiss(name_to_index, divide=4)
     
     elif parameters['strategy'] == 'GNN':
         strategy = GNN_strategy(name_to_index)
 
     x = make_mosaic(image, strategy, corrector, parameters)
-    save_mosaic(strategy, parameters, f"GNN.jpeg", x["mosaic"], "mosaics/NN_cosine")
-    assert False
-    print("Done generating strategy object.")
+    save_mosaic(strategy, parameters, f"TESTTERENCE.jpeg", x["mosaic"], "mosaics/NN_cosine")
     
-    for scaling in [0.8]:
-        print('Scaling:', scaling)
-        strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=scaling)
-        x = make_mosaic(image, strategy, corrector, parameters)
-        print('Evaluation:', ev.evaluate(x['mosaic'], image)[0].item())
-        print('\n')
-        
-        save_mosaic(strategy, parameters, f"gays_{scaling}.jpeg", x["mosaic"], "mosaics/NN_cosine")
+
+
+    '''
+    parameters['strategy'] = 'NN'
+    if parameters['strategy'] == 'NN':
+        NN = NNpolicy_torchresize(10000, name_to_index, "cosine")
+        NN.load()
+        strategy = NNStrategy(NN, True, max=parameters['limit'], sample=parameters['sample'], sample_temp=parameters['sample_temp'])
+
+    x = make_mosaic(image, strategy, corrector, parameters)
+    save_mosaic(strategy, parameters, f"NN.jpeg", x["mosaic"], "mosaics/NN_cosine")
+    '''

@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from groupy.garray.garray import GArray
+from mosaic_project.groupy.garray.garray import GArray
 
 
 class MatrixGArray(GArray):

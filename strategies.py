@@ -6,7 +6,7 @@ import faiss
 import itertools
 import pickle
 from torchvision import transforms as T
-from general_trainer import LitModel
+from mosaic_project.NN_training.general_trainer import LitModel
 
 
 class AverageStrategy:
@@ -173,9 +173,9 @@ class AverageStrategyCosine:
                          [72,92,95,98,112,100,103,99]])
 
 class AverageStrategyFaiss:
-    def __init__(self, name_to_index, divide=4, use_gpu=False, limit=None, use_cells=True):
+    def __init__(self, name_to_index, divide=4, use_gpu=False, limit=None, use_cells=True, path='data/dataset_r/'):
         self.index_to_name = {v: k for k, v in name_to_index.items()}
-        self.path = 'dataset_r/'
+        self.path = path
         self.average_map = {}
         self.name = "faissAverage"
         self.name_to_index = name_to_index
@@ -248,9 +248,9 @@ class AverageStrategyFaiss:
         return [self.index_to_name[ind] for ind in indexes]
 
 class AverageStrategyCosineFaiss:
-    def __init__(self, name_to_index, use_gpu=False, limit=None, use_cells=True, scaling=0.45):
+    def __init__(self, name_to_index, use_gpu=False, limit=None, use_cells=True, scaling=0.45, path='data/dataset_r/'):
         self.index_to_name = {v: k for k, v in name_to_index.items()}
-        self.path = 'dataset_r/'
+        self.path = path
         self.average_map = {}
         self.quantization_table = self.generate_quantization()
         self.name = "faiss"
@@ -414,24 +414,24 @@ class AverageXLuminosity:
         return [x for x in h]
 
 class NNStrategy:
-    def __init__(self, NN, load, max=None, sample=False, sample_temp = 1.1):
-        self.NN = NN
-        self.name = "NN_"+NN.name
-        self.max = NN.out_features
-        self.index_to_name = self.reverse_dic(self.NN.name_to_index)
+    def __init__(self, litmodel, load, max=None, sample=False, sample_temp = 1.1, pre_path=""):
+        self.NN = litmodel
+        self.name = "CNN_"+litmodel.NN.name
+        self.index_to_name = self.reverse_dic(self.NN.NN.name_to_index)
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.NN.to(self.device)
-        self.resizer = T.Resize((32,32))
+        self.resizer = T.Resize((8,8))
         self.quantization_table = self.generate_quantization()
-        self.name_to_index = NN.name_to_index
+        self.name_to_index = litmodel.NN.name_to_index
         self.average_map = {}
-        self.path = "dataset_r/"
+        self.pre_path = pre_path
+        self.path = pre_path+"data/dataset_r/"
 
         self.sample = sample
         self.sample_temp = sample_temp
 
         if max is None:
-            self.max = len(self.NN.name_to_index)
+            self.max = len(self.NN.NN.name_to_index)
         else:
             self.max = max
         self.init_average(load)
@@ -442,10 +442,10 @@ class NNStrategy:
             for name in self.name_to_index:
                 img = cv2.imread(self.path + name)
                 self.average_map[name] = self.average(img)
-            with open("average_map.pkl", "wb") as f:
+            with open(self.pre_path+"average_map.pkl", "wb") as f:
                 pickle.dump(self.average_map, f, -1)
         else:
-            with open("average_map.pkl", "rb") as f:
+            with open(self.pre_path+"average_map.pkl", "rb") as f:
                 self.average_map = pickle.load(f)
 
 
@@ -484,7 +484,7 @@ class NNStrategy:
         input = torch.Tensor(np.array(tile_set)).transpose(1,3)
         input = self.resizer(input).to(self.device)/255
         input = input.transpose(1,3)
-
+        #self.NN.eval()
         with torch.no_grad():
             pred = self.NN(input)
         
@@ -519,13 +519,13 @@ class NNStrategy:
 class GNN_strategy:
     def __init__(self, name_to_index):
         model = LitModel(NN_name='GCNN', load=False)
-        self.model = model.load_from_checkpoint('lightning_logs/version_3/checkpoints/epoch=20-step=14091.ckpt', NN_name='GCNN', load=False)
+        self.model = model.load_from_checkpoint('lightning_logs/version_6/checkpoints/epoch=40-step=40672.ckpt', NN_name='GCNN', load=False)
 
         x = cv2.resize(cv2.imread('subimage_2.jpeg'),(8,8))
         self.name_to_index = name_to_index
         self.index_to_name = self.reverse_dic(name_to_index)
         self.average_map = {}
-        self.path = "dataset_r/"
+        self.path = "data/dataset_r/"
         self.init_average(True)
         self.resizer = T.Resize((8,8))
         self.max = 10000
@@ -582,7 +582,8 @@ class GNN_strategy:
         with torch.no_grad():
             x = torch.Tensor(np.array(tile_list)).transpose(1,3)
             x = self.resizer(x).transpose(1,3)/255
-            y, d = self.model.predict(x)
+            self.model.eval()
+            y, d = self.model(x)
         
         y = torch.argmax(y,dim=-1)
         best_transform = torch.argmin(d.squeeze(), dim=-1)

@@ -1,8 +1,8 @@
 import numpy as np
-from groupy.garray.matrix_garray import MatrixGArray
-from groupy.garray.finitegroup import FiniteGroup
-from groupy.garray.p4_array import P4Array
-from groupy.garray.Z2_array import Z2Array
+from mosaic_project.groupy.garray.matrix_garray import MatrixGArray
+from mosaic_project.groupy.garray.finitegroup import FiniteGroup
+from mosaic_project.groupy.garray.p4_array import P4Array
+from mosaic_project.groupy.garray.Z2_array import Z2Array
 
 
 class C4Array(MatrixGArray):

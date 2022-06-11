@@ -1,6 +1,6 @@
 
-import groupy.garray.Z2_array as z2a
-from groupy.gfunc.gfuncarray import GFuncArray
+import mosaic_project.groupy.garray.Z2_array as z2a
+from mosaic_project.groupy.gfunc.gfuncarray import GFuncArray
 
 
 class Z2FuncArray(GFuncArray):

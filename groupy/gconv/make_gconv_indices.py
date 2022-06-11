@@ -5,12 +5,12 @@
 
 import numpy as np
 
-from groupy.garray.C4_array import C4
-from groupy.garray.D4_array import D4
-from groupy.garray.p4_array import C4_halfshift
-from groupy.gfunc.z2func_array import Z2FuncArray
-from groupy.gfunc.p4func_array import P4FuncArray
-from groupy.gfunc.p4mfunc_array import P4MFuncArray
+from mosaic_project.groupy.garray.C4_array import C4
+from mosaic_project.groupy.garray.D4_array import D4
+from mosaic_project.groupy.garray.p4_array import C4_halfshift
+from mosaic_project.groupy.gfunc.z2func_array import Z2FuncArray
+from mosaic_project.groupy.gfunc.p4func_array import P4FuncArray
+from mosaic_project.groupy.gfunc.p4mfunc_array import P4MFuncArray
 
 
 def make_c4_z2_indices(ksize):
