@@ -114,6 +114,12 @@ class ParametersCard extends Component {
                                     </Grid>
                                 </Grid>
                         </CardActions>
+
+                        <CardContent className= 'Card'>
+                            <Typography sx={{ fontSize: 14, color: '#ffffff'}} align='left' gutterBottom>
+                                Estimated time: 30 seconds ~ 2 minutes
+                            </Typography>
+                        </CardContent>
                     </Stack>
                 </Card>
             )

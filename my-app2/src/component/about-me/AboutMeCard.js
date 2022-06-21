@@ -50,8 +50,8 @@ class AboutMeCard extends Component{
                                 jpeg-like quality matching between tiles and real image.
                                 <br/>
                                 A neural network has been trained to estimate the matching of images, trading accuracy for speed.
-                                <br/><br/>
-                                Estimated time: 5s-1m
+                                <br/>
+                                Improvement ratio defines the percentage of tiles which will be passed to the improvement algorithm. The improvement algorithm looks for rotations and symmetries to better match the true image.
 
                             </Typography>
                         </CardContent>
