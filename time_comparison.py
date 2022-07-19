@@ -1,11 +1,12 @@
 import os 
 import cv2
+from NN_training.general_trainer import LitModel
 from mosaic_maker_iter import make_mosaic, save_mosaic
 from mosaic_evaluators import MosaicEvaluator, resize
 from helper_func import print_parameters
 from correctors import Combiner, Corrector, HSICorrector, LinearCorrector, AffineCorrector
 from nn_models import NNpolicy_torchresize
-from strategies import AverageStrategy, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageXLuminosity, NNStrategy
+from strategies import AverageStrategy, AverageStrategyCosine, AverageStrategyCosineFaiss, AverageStrategyFaiss, AverageXLuminosity, NNStrategy
 import pickle
 import numpy as np
 import time
@@ -21,6 +22,7 @@ sample_network = False
 sample_temperature = 5
 upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
 improve_ratio = 0.2
+path = ''
 
 parameters = {
     "limit": limit,
@@ -33,7 +35,8 @@ parameters = {
     'sample': sample_network,
     'sample_temp': sample_temperature,
     'upsize_discount': upsize_discount,
-    'improve_ratio': improve_ratio
+    'improve_ratio': improve_ratio,
+    'path': path,
 }
 
 
@@ -43,20 +46,20 @@ with open("name_to_index.pkl", "rb") as f:
     name_to_index = pickle.load(f)
 
 print("Initializing strategy objects..")
-NN = NNpolicy_torchresize(10000, name_to_index, "cosine")
-NN.load()
+NN = LitModel.load_from_checkpoint('models/version_13/checkpoints/epoch=79-step=158720.ckpt', NN_name='CNN', load=False)
 NN_strategy = NNStrategy(NN, True, max=parameters['limit'], sample=parameters['sample'], sample_temp=parameters['sample_temp'])
 faiss_strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False)
+
+average_strategy = AverageStrategyFaiss(name_to_index, divide=4, use_gpu=False, limit= None, use_cells=False)
 print("Done generating strategy objects.")
 
 res = {}
 
-for strategy_name in ['NN', 'Faiss']:
-    for num_tiles in [16,24,32,40,48,56,64]:
-        for group_transform in [True, False]:
+for strategy_name in ['NN', 'FaissCosine', 'Average']:
+    for num_tiles in [16,24,32,48,64,72]:
+        for improve_ratio in [0., 0.6]:
             for image_name in os.listdir(im_dir):
-                parameters['search_rotations'] = group_transform
-                parameters['search_symmetry'] = group_transform
+                parameters['improve_ratio'] = improve_ratio
                 parameters['strategy'] = strategy_name
                 parameters['n_tiles'] = num_tiles
                 
@@ -70,10 +73,13 @@ for strategy_name in ['NN', 'Faiss']:
                 if parameters['strategy'] == 'NN':
                     strategy = NN_strategy
                 
-                elif parameters['strategy'] == 'Faiss':
+                elif parameters['strategy'] == 'FaissCosine':
                     strategy = faiss_strategy
                 
-                corrector = AffineCorrector(max_affine=8, max_linear=30)
+                elif parameters['strategy'] == 'Average':
+                    strategy = average_strategy
+                
+                corrector = AffineCorrector(max_affine=8, max_linear=40)
 
                 start=time.time()
                 x = make_mosaic(image, strategy, corrector, parameters)
@@ -84,7 +90,7 @@ for strategy_name in ['NN', 'Faiss']:
                 eval = evaluator.evaluate(x['mosaic'], image)
                 print('Evaluation:', round(eval[0].item(),5))
                 print("\n")
-                res[(image_name, num_tiles, strategy_name, group_transform)] = (eval, end-start)
+                res[(image_name, num_tiles, strategy_name, improve_ratio)] = (eval, end-start)
 
 
 with open('evaluations/res.pkl', 'wb') as f:

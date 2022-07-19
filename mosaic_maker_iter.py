@@ -16,18 +16,18 @@ import matplotlib.pyplot as plt
 from mosaic_project.mosaic_evaluators import MosaicEvaluator
 
 if __name__ == '__main__':
-    image_name = "terence.png"
+    image_name = "evaluations/images/image.jpeg"
     limit = None
-    num_tiles = 32
+    num_tiles = 64
     search_rotations = True
     search_symmetry = True
     upsize_depth_search = 1
     quality = True
-    strategy_name = 'Average'
+    strategy_name = 'NN'
     sample_network = False
     sample_temperature = 5
     upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-    improve_ratio = 0.
+    improve_ratio = 0.5
     path = ''
 
     parameters = {
@@ -199,10 +199,10 @@ def generate_tile_infos(image, n_tiles_w, n_tiles_l, tile_size, parameters, mask
         if mask is not None:
             x = [a for a in x if (a[1]['coords'][0],a[1]['coords'][1]) in mask]
 
-        if parameters["search_rotations"] and parameters['strategy'] != 'GNN':
+        if parameters["search_rotations"] and parameters['strategy'] not in ['GNN', 'GNN_NoLoss']:
             x = rotation_generator(x)
         
-        if parameters["search_symmetry"] and parameters['strategy'] != 'GNN':
+        if parameters["search_symmetry"] and parameters['strategy'] not in ['GNN', 'GNN_NoLoss']:
             x = symmetry_generator(x)
         
         tile_infos_list += x
@@ -215,10 +215,16 @@ def improve_mosaic(n_tiles_w, n_tiles_l, tile_size, score_dict, previous_mosaic,
     improve_indexes = find_worse_score_indexes(score_dict, parameters["improve_ratio"])
 
     s = time.time()
-    new_tile_infos_list = generate_tile_infos(image, n_tiles_w, n_tiles_l, tile_size, parameters, mask=improve_indexes)
-    tile_list = [x[0] for x in new_tile_infos_list]
-    infos_list = [x[1] for x in new_tile_infos_list]
-    name_replacement_list = strategy.find_best_n(tile_list)
+    
+    if parameters['strategy'] == 'GNN_NoLoss':
+        raise Exception('NotImplemented') 
+    else:
+        new_tile_infos_list = generate_tile_infos(image, n_tiles_w, n_tiles_l, tile_size, parameters, mask=improve_indexes)
+        
+        tile_list = [x[0] for x in new_tile_infos_list]
+        infos_list = [x[1] for x in new_tile_infos_list]
+        
+        name_replacement_list = strategy.find_best_n(tile_list)
     print("find best n:",time.time()-s)
 
     s = time.time()
@@ -257,7 +263,6 @@ def make_mosaic(image, strategy, corrector, parameters):
         for x, g in zip(infos_list, transforms):
             x['rotation'] = [None, cv2.ROTATE_90_CLOCKWISE,cv2.ROTATE_180,cv2.ROTATE_90_COUNTERCLOCKWISE][g%4]
             x['symmetry'] = 1 if g<4 else -1
-
     else:
         name_replacement_list = strategy.find_best_n(tile_list)
     print("find best n:",time.time()-s)
@@ -339,7 +344,7 @@ if __name__ == '__main__':
     print("Initializing strategy object..")
 
     if parameters['strategy'] == 'NN':
-        NN = LitModel.load_from_checkpoint('models/version_13/checkpoints/epoch=79-step=158720.ckpt', NN_name='CNN', load=False)
+        NN = LitModel.load_from_checkpoint('NN_training/version_5/checkpoints/epoch=49-step=76750.ckpt', NN_name='CNN', load=False) #, NN_name='CNN', load=False
         strategy = NNStrategy(NN, True, max=parameters['limit'], sample=parameters['sample'], sample_temp=parameters['sample_temp'])
     
     elif parameters['strategy'] == 'FaissCosine':
@@ -350,19 +355,12 @@ if __name__ == '__main__':
     
     elif parameters['strategy'] == 'GNN':
         strategy = GNN_strategy(name_to_index)
-
-    x = make_mosaic(image, strategy, corrector, parameters)
-    save_mosaic(strategy, parameters, f"TESTTERENCE.jpeg", x["mosaic"], "mosaics/NN_cosine")
     
-
-
-    '''
-    parameters['strategy'] = 'NN'
-    if parameters['strategy'] == 'NN':
-        NN = NNpolicy_torchresize(10000, name_to_index, "cosine")
-        NN.load()
-        strategy = NNStrategy(NN, True, max=parameters['limit'], sample=parameters['sample'], sample_temp=parameters['sample_temp'])
+    elif parameters['strategy'] == 'GNN_NoLoss':
+        raise Exception('NotImplementedError')
+        #NN = 
+        #improve_strategy = GNN_NoLoss_strategy(name_to_index, NN)
+        #trategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=0.7)
 
     x = make_mosaic(image, strategy, corrector, parameters)
-    save_mosaic(strategy, parameters, f"NN.jpeg", x["mosaic"], "mosaics/NN_cosine")
-    '''
+    save_mosaic(strategy, parameters, f"marinabay.jpeg", x["mosaic"], "mosaics/NN_cosine")

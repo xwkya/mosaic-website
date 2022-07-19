@@ -27,7 +27,6 @@ class NNModel(torch.nn.Module):
     def forward(self):
         raise NotImplementedError
 
-
 class NNpolicy_torchresize(NNModel):
     def __init__(self, out_features, name_to_index, name):
         self.name_to_index = name_to_index
@@ -80,18 +79,18 @@ class NNGCNN2(NNModel):
 
         self.conv1 = P4MConvZ2(3, 32, kernel_size=3, padding=1)
         self.conv2 = P4MConvP4M(32, 64, kernel_size=3, padding=1)
-        self.conv3 = P4MConvP4M(64, 256, kernel_size=3, padding=1)
+        self.conv3 = P4MConvP4M(64, 64, kernel_size=3, padding=1)
 
         # Using Conv1d layers to use the group option
 
         if predict_loss:
-            self.fc1 = torch.nn.Linear(4*4*256, 1024)
+            self.fc1 = torch.nn.Linear(4*4*64, 1024)
             self.fc2 = torch.nn.Linear(1024, 2048)
             self.fc_out = torch.nn.Linear(2048, out_features)
             self.fc_dist = torch.nn.Linear(2048*8, 8)
 
         else:
-            self.fc1 = torch.nn.Linear(4*4*256, 1024)
+            self.fc1 = torch.nn.Linear(4*4*64, 1024)
             self.fc2 = torch.nn.Linear(1024, 2048)
             self.fc_out = torch.nn.Linear(2048, out_features)
         
@@ -104,11 +103,11 @@ class NNGCNN2(NNModel):
         x = F.relu(self.conv3(x))
 
         x = plane_group_spatial_max_pooling(x, 2, 2)
-        # x: (bsz, 256, 8, 4, 4) = (bsz, C, |G|, h, w)
+        # x: (bsz, 64, 8, 4, 4) = (bsz, C, |G|, h, w)
         x = x.transpose(1,2).contiguous()
         bsz = x.shape[0]
-        # x: (bsz, 8, 256, 4, 4)
-        x = x.view(bsz*8, 256, 4, 4) # (bsz*8, 256, 4, 4)
+        # x: (bsz, 8, 64, 4, 4)
+        x = x.view(bsz*8, 64, 4, 4) # (bsz*8, 64, 4, 4)
 
         # Apply the inverse transform to get the equivariance
         flip_indexes = [r+4 for r in range(bsz)]+[r+5 for r in range(bsz)]+[r+6 for r in range(bsz)]+[r+7 for r in range(bsz)]
@@ -128,7 +127,6 @@ class NNGCNN2(NNModel):
         else:
             x_features = self.fc_out(x)
             return x_features
- 
 
 class NNConstructed(NNModel):
     def __init__(self, out_features, name_to_index, name, batchNorm2d=False, batchNorm1d=False, linear_size=[1024, 1024, 2048], conv_channels=[32, 64, 128]):
