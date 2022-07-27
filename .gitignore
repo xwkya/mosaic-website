@@ -17,3 +17,4 @@ lightning_logs/
 *.pkl
 NN_training/version_*
 *.zip
+models/
