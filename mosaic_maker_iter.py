@@ -16,18 +16,18 @@ import matplotlib.pyplot as plt
 from mosaic_project.mosaic_evaluators import MosaicEvaluator
 
 if __name__ == '__main__':
-    image_name = "evaluations/images/image.jpeg"
-    limit = None
-    num_tiles = 64
+    image_name = "evaluations/images/image2.jpeg"
+    limit = 50
+    num_tiles = 48
     search_rotations = True
     search_symmetry = True
     upsize_depth_search = 1
-    quality = True
-    strategy_name = 'NN'
+    quality = False
+    strategy_name = 'Average'
     sample_network = False
     sample_temperature = 5
     upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-    improve_ratio = 0.5
+    improve_ratio = 0
     path = ''
 
     parameters = {
@@ -363,4 +363,4 @@ if __name__ == '__main__':
         #trategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=0.7)
 
     x = make_mosaic(image, strategy, corrector, parameters)
-    save_mosaic(strategy, parameters, f"marinabay.jpeg", x["mosaic"], "mosaics/NN_cosine")
+    save_mosaic(strategy, parameters, f"moi.jpeg", x["mosaic"], "mosaics/NN_cosine")

@@ -252,7 +252,9 @@ class AverageStrategyCosineFaiss:
         self.index_to_name = {v: k for k, v in name_to_index.items()}
         self.path = path
         self.average_map = {}
-        self.quantization_table = self.generate_quantization()
+        # chr quant gives bad result on l
+        self.quantization_table_l = self.generate_quantization_lum()
+        self.quantization_table_c = self.generate_quantization_chr()
         self.name = "faiss"
         self.name_to_index = name_to_index
         self.use_cells = use_cells
@@ -274,15 +276,21 @@ class AverageStrategyCosineFaiss:
         # Average over 8 pixels
         for i in range(8):
             for j in range(8):
-                for k in range(1,3):
-                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k]) * self.scaling # Less important.
-                average_t[i,j,0] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, 0])
-        # Run the Discrete Cosine Transform on the luminescence
-        imf = np.float32(average_t[:,:,0])/255.0  # float conversion/scale
-        dct = cv2.dct(imf)              # the dct
-        imgcv1 = dct*255.0    # convert back to int
-        imgcv1 = imgcv1/self.quantization_table
-        average_t[:, :, 0] = imgcv1 * np.mean(self.quantization_table) # More important
+                for k in range(0,3):
+                    average_t[i,j,k] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, k])
+                #average_t[i,j,0] = np.mean(img[(i*img.shape[0])//8 : ((i+1)*img.shape[0])//8, (j*img.shape[1])//8 : ((j+1)*img.shape[1])//8, 0])
+        # Run the Discrete Cosine Transform on every component
+        imf = np.float32(average_t[:,:])/255.0  # float conversion/scale
+        dct0 = cv2.dct(imf[:, :, 0])*255-128              # the dct
+        dct1 = cv2.dct(imf[:, :, 1])*255-128
+        dct2 = cv2.dct(imf[:, :, 2])*255-128
+        
+        dct0 = dct0/self.quantization_table_l
+        dct1 = dct1/self.quantization_table_c
+        dct2 = dct2/self.quantization_table_c
+        average_t[:, :, 0] = dct0
+        average_t[:, :, 1] = dct1
+        average_t[:, :, 2] = dct2
 
         #print(np.mean(average_t[:, :, 0]), np.mean(average_t[:, :, 1:]))
 
@@ -340,7 +348,8 @@ class AverageStrategyCosineFaiss:
         D,I = self.index.search(average_tile.astype('float32'), k)
         return I
     
-    def generate_quantization(self):
+    def generate_quantization_lum(self):
+        #return np.ones((8,8))
         return np.array([[16,11,10,16,24,40,51,61],
                          [12,12,14,19,26,58,60,55],
                          [14,13,16,24,40,57,69,56],
@@ -349,6 +358,17 @@ class AverageStrategyCosineFaiss:
                          [24,35,55,64,81,104,113,92],
                          [49,64,78,87,103,121,120,101],
                          [72,92,95,98,112,100,103,99]])
+
+    def generate_quantization_chr(self):
+        #return np.ones((8,8))
+        return np.array([[16,18,24,47,99,99,99,99],
+                         [18,21,26,66,99,99,99,99],
+                         [24,26,56,56,99,99,99,99],
+                         [47,66,70,99,99,99,99,99],
+                         [66,99,99,99,99,99,99,99],
+                         [99,99,99,99,99,99,99,99],
+                         [99,99,99,99,99,99,99,99],
+                         [99,99,99,99,99,99,99,99]])*4
 
 class AverageXLuminosity:
     def __init__(self, divides, path, max):
