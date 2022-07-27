@@ -17,17 +17,17 @@ from mosaic_project.mosaic_evaluators import MosaicEvaluator
 
 if __name__ == '__main__':
     image_name = "evaluations/images/image2.jpeg"
-    limit = 50
+    limit = 1
     num_tiles = 48
     search_rotations = True
     search_symmetry = True
-    upsize_depth_search = 1
+    upsize_depth_search = 2
     quality = False
     strategy_name = 'Average'
     sample_network = False
     sample_temperature = 5
     upsize_discount = 0.7 # Allow the upsize discount to be x% worse than the small tiles
-    improve_ratio = 0
+    improve_ratio = .8
     path = ''
 
     parameters = {
@@ -351,7 +351,7 @@ if __name__ == '__main__':
         strategy = AverageStrategyCosineFaiss(name_to_index, limit=parameters['limit'], use_cells=False, scaling=0.7)
     
     elif parameters['strategy'] == 'Average':
-        strategy = AverageStrategyFaiss(name_to_index, divide=4)
+        strategy = AverageStrategyFaiss(name_to_index, divide=8, limit=parameters['limit'], use_cells=False)
     
     elif parameters['strategy'] == 'GNN':
         strategy = GNN_strategy(name_to_index)
